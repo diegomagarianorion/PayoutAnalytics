@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, Fragment } from 'react';
 import {
     AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
@@ -70,18 +70,60 @@ const CUSTOM_TOOLTIP_STYLE = {
     padding: '10px 14px',
 };
 
+function parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+            else inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current); current = '';
+        } else {
+            current += ch;
+        }
+    }
+    result.push(current);
+    return result;
+}
+
+function parseCustomersCsv(text: string): Map<string, { country: string; spent: number }> {
+    const lines = text.split(/\r?\n/);
+    const result = new Map<string, { country: string; spent: number }>();
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const cols = parseCSVLine(lines[i]);
+        const email = cols[9]?.trim().toLowerCase();
+        const country = cols[16]?.trim();
+        const spentRaw = cols[17]?.trim().replace(/[^0-9.-]/g, '');
+        const spent = parseFloat(spentRaw || '0') || 0;
+        if (email && country) result.set(email, { country, spent });
+    }
+    return result;
+}
+
 export default function Dashboard() {
     const [records, setRecords] = useState<PayoutRecord[]>([]);
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [loading, setLoading] = useState(false);
     const [fileName, setFileName] = useState('');
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'table' | 'analysis'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'table' | 'analysis' | 'country'>('dashboard');
     const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
     const [page, setPage] = useState(1);
     const [sortBy, setSortBy] = useState<keyof PayoutRecord>('date');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
     const [isDrag, setIsDrag] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
+    const [customerCsvData, setCustomerCsvData] = useState<Map<string, { country: string; spent: number }>>(new Map());
+    const [customerFileName, setCustomerFileName] = useState('');
+    const [customerLoading, setCustomerLoading] = useState(false);
+    const [expandedCountry, setExpandedCountry] = useState<string | null>(null);
+    const [countrySearch, setCountrySearch] = useState('');
+    const [countrySortBy, setCountrySortBy] = useState<'traders' | 'spent' | 'withdrawn'>('withdrawn');
+    const [countrySortDir, setCountrySortDir] = useState<'asc' | 'desc'>('desc');
+    const customerCsvRef = useRef<HTMLInputElement>(null);
 
     const processFile = useCallback(async (file: File) => {
         setLoading(true);
@@ -97,6 +139,19 @@ export default function Dashboard() {
             setPage(1);
         } finally {
             setLoading(false);
+        }
+    }, []);
+
+    const handleCustomerCsv = useCallback(async (file: File) => {
+        setCustomerLoading(true);
+        setCustomerFileName(file.name);
+        try {
+            const text = await file.text();
+            const data = parseCustomersCsv(text);
+            setCustomerCsvData(data);
+            setExpandedCountry(null);
+        } finally {
+            setCustomerLoading(false);
         }
     }, []);
 
@@ -156,6 +211,39 @@ export default function Dashboard() {
         const date = new Date().toISOString().split('T')[0];
         exportToXlsx(filtered, `OrionFunded_Payouts_${date}.xlsx`);
     };
+
+    const countryData = useMemo(() => {
+        if (customerCsvData.size === 0) return [];
+        const byEmail: Record<string, { name: string; email: string; paid: number; totalPaid: number }> = {};
+        for (const r of records) {
+            if (!r.email) continue;
+            if (!byEmail[r.email]) byEmail[r.email] = { name: r.name, email: r.email, paid: 0, totalPaid: 0 };
+            if (r.condition === 'Paid') { byEmail[r.email].paid++; byEmail[r.email].totalPaid += (r.total ?? r.submitted); }
+        }
+        const byCountry: Record<string, { country: string; traders: Array<{ name: string; email: string; spent: number; withdrawn: number }>; totalSpent: number; totalWithdrawn: number }> = {};
+        for (const [email, trader] of Object.entries(byEmail)) {
+            if (trader.paid < 1) continue;
+            const csv = customerCsvData.get(email);
+            if (!csv) continue;
+            const { country, spent } = csv;
+            if (!byCountry[country]) byCountry[country] = { country, traders: [], totalSpent: 0, totalWithdrawn: 0 };
+            byCountry[country].traders.push({ name: trader.name, email, spent, withdrawn: trader.totalPaid });
+            byCountry[country].totalSpent += spent;
+            byCountry[country].totalWithdrawn += trader.totalPaid;
+        }
+        return Object.values(byCountry);
+    }, [records, customerCsvData]);
+
+    const filteredCountries = useMemo(() => {
+        let data = countryData;
+        if (countrySearch) data = data.filter(c => c.country.toLowerCase().includes(countrySearch.toLowerCase()));
+        return [...data].sort((a, b) => {
+            const mult = countrySortDir === 'asc' ? 1 : -1;
+            if (countrySortBy === 'traders') return (a.traders.length - b.traders.length) * mult;
+            if (countrySortBy === 'spent') return (a.totalSpent - b.totalSpent) * mult;
+            return (a.totalWithdrawn - b.totalWithdrawn) * mult;
+        });
+    }, [countryData, countrySearch, countrySortBy, countrySortDir]);
 
     const SortIcon = ({ col }: { col: keyof PayoutRecord }) => {
         if (sortBy !== col) return <span style={{ opacity: 0.3 }}>⇅</span>;
@@ -234,6 +322,7 @@ export default function Dashboard() {
                         { id: 'dashboard', icon: '📊', label: 'Dashboard' },
                         { id: 'table', icon: '📋', label: 'Payout Records' },
                         { id: 'analysis', icon: '🔍', label: 'Analysis' },
+                        { id: 'country', icon: '🌍', label: 'Análisis por País' },
                     ].map(item => (
                         <button
                             key={item.id}
@@ -271,7 +360,7 @@ export default function Dashboard() {
                 {/* TOP BAR */}
                 <div className="topbar">
                     <div className="topbar-left">
-                        <h1>{activeTab === 'dashboard' ? '📊 Dashboard' : activeTab === 'table' ? '📋 Payout Records' : '🔍 Analysis'}</h1>
+                        <h1>{activeTab === 'dashboard' ? '📊 Dashboard' : activeTab === 'table' ? '📋 Payout Records' : activeTab === 'analysis' ? '🔍 Analysis' : '🌍 Análisis por País'}</h1>
                         <p>Orion Funded · Risk Department · {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
                     </div>
                     <div className="topbar-right">
@@ -627,6 +716,274 @@ export default function Dashboard() {
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {/* ═══════════════════════════════ COUNTRY TAB */}
+                    {activeTab === 'country' && (
+                        <>
+                            <input
+                                ref={customerCsvRef}
+                                type="file"
+                                accept=".csv"
+                                style={{ display: 'none' }}
+                                onChange={e => { const f = e.target.files?.[0]; if (f) handleCustomerCsv(f); e.target.value = ''; }}
+                            />
+
+                            {customerCsvData.size === 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
+                                    <div style={{ width: '100%', maxWidth: 520 }}>
+                                        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                                            <div style={{
+                                                width: 72, height: 72,
+                                                background: 'linear-gradient(135deg, #4f8ef7, #2563eb)',
+                                                borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: 36, margin: '0 auto 20px',
+                                                boxShadow: '0 8px 32px rgba(79,142,247,0.3)',
+                                            }}>🌍</div>
+                                            <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Análisis por País</h2>
+                                            <p style={{ color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.6 }}>
+                                                Cargá el archivo de clientes para cruzar los datos de retiros<br />con el país y gasto de cada trader.
+                                            </p>
+                                        </div>
+                                        <div
+                                            className="upload-zone"
+                                            onClick={() => customerCsvRef.current?.click()}
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            {customerLoading ? (
+                                                <div className="loading-overlay" style={{ padding: 20 }}>
+                                                    <div className="spinner" />
+                                                    <span>Procesando CSV…</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="upload-icon">📋</div>
+                                                    <div className="upload-title">Cargar Customers CSV</div>
+                                                    <div className="upload-sub">Formato: Customers-YYYY-MM-DD.csv</div>
+                                                    <div style={{ marginTop: 16 }}>
+                                                        <span className="btn btn-primary">Seleccionar Archivo</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+                                            {['✓ Columna J = Email', '✓ Columna Q = País', '✓ Columna R = Gastado'].map(t => (
+                                                <div key={t} style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{t}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* KPI CARDS */}
+                                    <div className="stats-grid">
+                                        <div className="stat-card blue">
+                                            <div className="stat-icon icon-blue">🌍</div>
+                                            <div className="stat-label">Países</div>
+                                            <div className="stat-value">{fmtNum(countryData.length)}</div>
+                                            <div className="stat-sub">con traders activos</div>
+                                        </div>
+                                        <div className="stat-card gold">
+                                            <div className="stat-icon icon-gold">👥</div>
+                                            <div className="stat-label">Traders Asociados</div>
+                                            <div className="stat-value">{fmtNum(countryData.reduce((s, c) => s + c.traders.length, 0))}</div>
+                                            <div className="stat-sub">con 1+ pagos</div>
+                                        </div>
+                                        <div className="stat-card blue">
+                                            <div className="stat-icon icon-blue">💳</div>
+                                            <div className="stat-label">Total Gastado</div>
+                                            <div className="stat-value">{fmtCurrency(countryData.reduce((s, c) => s + c.totalSpent, 0))}</div>
+                                            <div className="stat-sub">por clientes</div>
+                                        </div>
+                                        <div className="stat-card green">
+                                            <div className="stat-icon icon-green">💰</div>
+                                            <div className="stat-label">Total Retirado</div>
+                                            <div className="stat-value">{fmtCurrency(countryData.reduce((s, c) => s + c.totalWithdrawn, 0))}</div>
+                                            <div className="stat-sub">payouts pagados</div>
+                                        </div>
+                                    </div>
+
+                                    {/* CHARTS */}
+                                    <div className="chart-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                                        <div className="chart-container">
+                                            <div className="chart-title">👥 Top Países · Traders</div>
+                                            <ResponsiveContainer width="100%" height={300}>
+                                                <BarChart
+                                                    layout="vertical"
+                                                    data={[...countryData].sort((a, b) => b.traders.length - a.traders.length).slice(0, 10).map(c => ({ name: c.country.length > 18 ? c.country.slice(0, 18) + '…' : c.country, value: c.traders.length }))}
+                                                    margin={{ top: 4, right: 20, bottom: 4, left: 130 }}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                                                    <XAxis type="number" tick={{ fill: '#4a566a', fontSize: 10 }} allowDecimals={false} />
+                                                    <YAxis type="category" dataKey="name" tick={{ fill: '#8b9ab5', fontSize: 10 }} width={130} />
+                                                    <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} formatter={(v: number) => [v, 'Traders']} />
+                                                    <Bar dataKey="value" name="Traders" fill="#f5c842" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <div className="chart-container">
+                                            <div className="chart-title">💳 Top Países · Gastado</div>
+                                            <ResponsiveContainer width="100%" height={300}>
+                                                <BarChart
+                                                    layout="vertical"
+                                                    data={[...countryData].sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 10).map(c => ({ name: c.country.length > 18 ? c.country.slice(0, 18) + '…' : c.country, value: c.totalSpent }))}
+                                                    margin={{ top: 4, right: 20, bottom: 4, left: 130 }}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                                                    <XAxis type="number" tick={{ fill: '#4a566a', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
+                                                    <YAxis type="category" dataKey="name" tick={{ fill: '#8b9ab5', fontSize: 10 }} width={130} />
+                                                    <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} formatter={(v: number) => [fmtCurrency(v), 'Gastado']} />
+                                                    <Bar dataKey="value" name="Gastado" fill="#4f8ef7" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <div className="chart-container">
+                                            <div className="chart-title">💰 Top Países · Retirado</div>
+                                            <ResponsiveContainer width="100%" height={300}>
+                                                <BarChart
+                                                    layout="vertical"
+                                                    data={[...countryData].sort((a, b) => b.totalWithdrawn - a.totalWithdrawn).slice(0, 10).map(c => ({ name: c.country.length > 18 ? c.country.slice(0, 18) + '…' : c.country, value: c.totalWithdrawn }))}
+                                                    margin={{ top: 4, right: 20, bottom: 4, left: 130 }}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                                                    <XAxis type="number" tick={{ fill: '#4a566a', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
+                                                    <YAxis type="category" dataKey="name" tick={{ fill: '#8b9ab5', fontSize: 10 }} width={130} />
+                                                    <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} formatter={(v: number) => [fmtCurrency(v), 'Retirado']} />
+                                                    <Bar dataKey="value" name="Retirado" fill="#2dd99e" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+
+                                    {/* TABLE */}
+                                    <div className="section-card">
+                                        <div className="section-header">
+                                            <div className="section-title">
+                                                <div className="section-title-icon">🌍</div>
+                                                Detalle por País
+                                                <span style={{ background: 'var(--accent-gold-dim)', color: 'var(--accent-gold)', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                                                    {filteredCountries.length} países
+                                                </span>
+                                            </div>
+                                            <div className="filters-bar">
+                                                <input
+                                                    className="filter-input"
+                                                    placeholder="🔍 Buscar país…"
+                                                    value={countrySearch}
+                                                    onChange={e => { setCountrySearch(e.target.value); setExpandedCountry(null); }}
+                                                    style={{ minWidth: 180 }}
+                                                />
+                                                <select
+                                                    className="filter-select"
+                                                    value={countrySortBy}
+                                                    onChange={e => setCountrySortBy(e.target.value as typeof countrySortBy)}
+                                                >
+                                                    <option value="traders">Por Traders</option>
+                                                    <option value="spent">Por Gastado</option>
+                                                    <option value="withdrawn">Por Retirado</option>
+                                                </select>
+                                                <button
+                                                    className="btn btn-secondary btn-sm"
+                                                    onClick={() => setCountrySortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                                                >
+                                                    {countrySortDir === 'desc' ? '↓ Mayor primero' : '↑ Menor primero'}
+                                                </button>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => customerCsvRef.current?.click()}>
+                                                    📋 Cambiar CSV
+                                                </button>
+                                                {customerFileName && (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{customerFileName}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="table-container" style={{ maxHeight: 600 }}>
+                                            <table className="data-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th style={{ width: 40 }}>#</th>
+                                                        <th>País</th>
+                                                        <th>Traders</th>
+                                                        <th>Total Gastado</th>
+                                                        <th>Total Retirado</th>
+                                                        <th>Prom. Gastado</th>
+                                                        <th>Prom. Retirado</th>
+                                                        <th style={{ width: 40 }}></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {filteredCountries.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={8}>
+                                                                <div className="empty-state">
+                                                                    <div className="empty-state-icon">🌍</div>
+                                                                    <div className="empty-state-title">Sin resultados</div>
+                                                                    <div className="empty-state-sub">No se encontraron países con los filtros actuales</div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ) : filteredCountries.map((c, i) => (
+                                                        <Fragment key={c.country}>
+                                                            <tr
+                                                                style={{ cursor: 'pointer' }}
+                                                                onClick={() => setExpandedCountry(expandedCountry === c.country ? null : c.country)}
+                                                            >
+                                                                <td style={{ color: 'var(--text-muted)', fontWeight: 700 }}>{i + 1}</td>
+                                                                <td style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 14, maxWidth: 200 }}>{c.country}</td>
+                                                                <td>
+                                                                    <span style={{ background: 'rgba(245,200,66,0.15)', color: 'var(--accent-gold)', padding: '2px 12px', borderRadius: 20, fontWeight: 700, fontSize: 12 }}>
+                                                                        {c.traders.length}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ color: '#4f8ef7', fontWeight: 600 }}>{fmtCurrency(c.totalSpent)}</td>
+                                                                <td style={{ color: 'var(--green)', fontWeight: 600 }}>{fmtCurrency(c.totalWithdrawn)}</td>
+                                                                <td style={{ color: 'var(--text-secondary)' }}>{fmtCurrency(c.totalSpent / c.traders.length)}</td>
+                                                                <td style={{ color: 'var(--text-secondary)' }}>{fmtCurrency(c.totalWithdrawn / c.traders.length)}</td>
+                                                                <td style={{ textAlign: 'center', color: 'var(--accent-gold)', fontWeight: 700 }}>
+                                                                    {expandedCountry === c.country ? '▲' : '▼'}
+                                                                </td>
+                                                            </tr>
+                                                            {expandedCountry === c.country && (
+                                                                <tr>
+                                                                    <td colSpan={8} style={{ padding: 0, background: 'rgba(0,0,0,0.25)' }}>
+                                                                        <div style={{ padding: '0 0 4px 0', borderLeft: '3px solid var(--accent-gold)' }}>
+                                                                            <div style={{ padding: '8px 16px 4px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                                                                {c.traders.length} traders en {c.country}
+                                                                            </div>
+                                                                            <table className="data-table">
+                                                                                <thead>
+                                                                                    <tr>
+                                                                                        <th>Nombre</th>
+                                                                                        <th>Email</th>
+                                                                                        <th>Gastado</th>
+                                                                                        <th>Retirado</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    {[...c.traders].sort((a, b) => b.withdrawn - a.withdrawn).map(trader => (
+                                                                                        <tr key={trader.email}>
+                                                                                            <td style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{trader.name}</td>
+                                                                                            <td style={{ color: 'var(--text-muted)', fontSize: 11 }}>{trader.email}</td>
+                                                                                            <td style={{ color: '#4f8ef7', fontWeight: 600 }}>{fmtCurrency(trader.spent)}</td>
+                                                                                            <td style={{ color: 'var(--green)', fontWeight: 600 }}>{fmtCurrency(trader.withdrawn)}</td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </Fragment>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </>
                     )}
 
                     {/* ═══════════════════════════════ ANALYSIS TAB */}

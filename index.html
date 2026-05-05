@@ -925,6 +925,7 @@
         <button class="nav-btn" onclick="showTab('hoja',this)">📂 Por Hoja</button>
         <button class="nav-btn" onclick="showTab('reportes',this)">📄 Reportes PDF</button>
         <button class="nav-btn" onclick="showTab('simulacion',this)">🎲 Simulación</button>
+        <button class="nav-btn" onclick="showTab('country',this)">🌍 Análisis por País</button>
         <span class="nav-lbl" style="margin-top:12px">Datos</span>
         <button class="nav-btn" onclick="document.getElementById('file-input').click()">📁 Cargar Archivo</button>
         <button class="nav-btn" onclick="doExport()">⬇️ Exportar Excel</button>
@@ -1209,6 +1210,66 @@
               <div style="display:flex;justify-content:space-between;margin-top:5px">
                 <span id="hoja-topx-label" style="font-size:11px;color:var(--t3)"></span>
                 <span id="hoja-topx-pct-label" style="font-size:11px;font-weight:700;color:#4f8ef7"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="tab-country" style="display:none">
+          <div id="country-upload" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:420px">
+            <div style="width:100%;max-width:500px">
+              <div style="text-align:center;margin-bottom:28px">
+                <div style="width:68px;height:68px;background:linear-gradient(135deg,#4f8ef7,#2563eb);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:34px;margin:0 auto 18px;box-shadow:0 8px 28px rgba(79,142,247,.3)">🌍</div>
+                <h2 style="font-size:22px;font-weight:800;color:var(--t1);margin-bottom:8px">Análisis por País</h2>
+                <p style="color:var(--t3);font-size:13px;line-height:1.6">Cargá el archivo de clientes para cruzar datos de retiros<br>con el país y gasto de cada trader.</p>
+              </div>
+              <div class="drop-zone" id="country-drop" onclick="document.getElementById('country-csv-input').click()" style="cursor:pointer">
+                <div class="drop-icon">📋</div>
+                <div class="drop-title">Cargar Customers CSV</div>
+                <div style="font-size:13px;color:var(--t3);margin-top:4px">Formato: Customers-YYYY-MM-DD.csv</div>
+                <div style="margin-top:14px"><span class="btn btn-p">Seleccionar Archivo</span></div>
+              </div>
+              <input type="file" id="country-csv-input" accept=".csv" style="display:none">
+              <div style="display:flex;gap:10px;margin-top:18px">
+                <div style="flex:1;background:var(--bgc);border:1px solid var(--b);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--t3);text-align:center">✓ Col. J = Email</div>
+                <div style="flex:1;background:var(--bgc);border:1px solid var(--b);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--t3);text-align:center">✓ Col. Q = País</div>
+                <div style="flex:1;background:var(--bgc);border:1px solid var(--b);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--t3);text-align:center">✓ Col. R = Gastado</div>
+              </div>
+            </div>
+          </div>
+          <div id="country-content" style="display:none">
+            <div class="stats-grid" id="country-stats"></div>
+            <div class="chart-grid" style="margin-top:16px;grid-template-columns:repeat(3,1fr)" id="country-charts"></div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-head">
+                <div class="card-title">
+                  <div class="ctitle-ico">🌍</div>Detalle por País
+                  <span class="cnt-badge" id="country-count-badge">0</span>
+                </div>
+                <div class="filters">
+                  <input class="finp" id="country-search" placeholder="🔍 Buscar país…" oninput="renderCountryTable()" style="min-width:160px" />
+                  <button class="btn btn-g btn-sm" onclick="document.getElementById('country-csv-input').click()">📋 Cambiar CSV</button>
+                  <span id="country-csv-name" style="font-size:11px;color:var(--t3)"></span>
+                </div>
+              </div>
+              <div class="tbl-wrap" style="max-height:600px">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width:36px">#</th>
+                      <th onclick="sortCountryBy('country')" style="cursor:pointer">País <span id="cth-country"></span></th>
+                      <th onclick="sortCountryBy('totalCustomers')" style="cursor:pointer">Traders Totales <span id="cth-totalCustomers"></span></th>
+                      <th onclick="sortCountryBy('traders')" style="cursor:pointer">Traders con Retiro <span id="cth-traders"></span></th>
+                      <th onclick="sortCountryBy('spent')" style="cursor:pointer">Total Gastado <span id="cth-spent"></span></th>
+                      <th onclick="sortCountryBy('withdrawn')" style="cursor:pointer">Total Retirado <span id="cth-withdrawn">↓</span></th>
+                      <th onclick="sortCountryBy('avgSpent')" style="cursor:pointer">Prom. Gastado <span id="cth-avgSpent"></span></th>
+                      <th onclick="sortCountryBy('avgWithdrawn')" style="cursor:pointer">Prom. Retirado <span id="cth-avgWithdrawn"></span></th>
+                      <th onclick="sortCountryBy('pctTraders')" style="cursor:pointer">% Traders c/Retiro <span id="cth-pctTraders"></span></th>
+                      <th onclick="sortCountryBy('pct')" style="cursor:pointer">% Ret./Gast. <span id="cth-pct"></span></th>
+                      <th style="width:36px"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="country-tbody"></tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -2092,10 +2153,10 @@
 
     // ── TABS ──
     function showTab(tab, btn) {
-      ['dashboard', 'records', 'analysis', 'hoja', 'reportes', 'simulacion'].forEach(function (t) { document.getElementById('tab-' + t).style.display = t === tab ? '' : 'none'; });
+      ['dashboard', 'records', 'analysis', 'hoja', 'reportes', 'simulacion', 'country'].forEach(function (t) { document.getElementById('tab-' + t).style.display = t === tab ? '' : 'none'; });
       document.querySelectorAll('#screen-dash .nav-btn').forEach(function (b) { b.classList.remove('active'); });
       if (btn) btn.classList.add('active');
-      var titles = { dashboard: '📊 Dashboard', records: '📋 Registros de Payout', analysis: '🔍 Análisis', hoja: '📂 Análisis Por Hoja', reportes: '📄 Reportes PDF', simulacion: '🎲 Simulación de Aprobación' };
+      var titles = { dashboard: '📊 Dashboard', records: '📋 Registros de Payout', analysis: '🔍 Análisis', hoja: '📂 Análisis Por Hoja', reportes: '📄 Reportes PDF', simulacion: '🎲 Simulación de Aprobación', country: '🌍 Análisis por País' };
       document.getElementById('tb-title').textContent = titles[tab] || '';
       document.getElementById('btn-exp').style.display = tab === 'records' ? 'inline-flex' : 'none';
       if (tab === 'reportes') updatePdfPreview();
@@ -3683,6 +3744,243 @@
     // ════════════════════════════════════════════════════════
     // ─── END POSITIONS MODULE ────────────────────────────────
     // ════════════════════════════════════════════════════════
+
+    // ── COUNTRY ANALYSIS ──
+    var CUSTOMER_MAP = {};
+    var COUNTRY_CSV_MAP = {};
+    var COUNTRY_DATA = [];
+    var TOTAL_FACTURADO = 0;
+    var countrySortCol = 'withdrawn';
+    var countrySortDir = -1;
+    var expandedCountry = null;
+    var expandedSortCol = 'withdrawn';
+    var expandedSortDir = -1;
+
+    function parseCSVLine(line) {
+      var result = [], current = '', inQ = false;
+      for (var i = 0; i < line.length; i++) {
+        var ch = line[i];
+        if (ch === '"') {
+          if (inQ && line[i + 1] === '"') { current += '"'; i++; }
+          else inQ = !inQ;
+        } else if (ch === ',' && !inQ) { result.push(current); current = ''; }
+        else current += ch;
+      }
+      result.push(current);
+      return result;
+    }
+
+    function loadCustomerCsv(file) {
+      document.getElementById('country-csv-name').textContent = file.name;
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var lines = e.target.result.split(/\r?\n/);
+        CUSTOMER_MAP = {};
+        COUNTRY_CSV_MAP = {};
+        TOTAL_FACTURADO = 0;
+        for (var i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          var cols = parseCSVLine(lines[i]);
+          var email = (cols[9] || '').trim().toLowerCase();
+          var country = (cols[16] || '').trim();
+          var spentRaw = (cols[17] || '').trim().replace(/[^0-9.-]/g, '');
+          var spent = parseFloat(spentRaw) || 0;
+          TOTAL_FACTURADO += spent;
+          if (country) {
+            if (!COUNTRY_CSV_MAP[country]) COUNTRY_CSV_MAP[country] = { totalSpent: 0, count: 0 };
+            COUNTRY_CSV_MAP[country].totalSpent += spent;
+            COUNTRY_CSV_MAP[country].count++;
+          }
+          if (email && country) CUSTOMER_MAP[email] = { country: country, spent: spent };
+        }
+        buildCountryData();
+        document.getElementById('country-upload').style.display = 'none';
+        document.getElementById('country-content').style.display = '';
+      };
+      reader.readAsText(file);
+    }
+
+    function buildCountryData() {
+      var byEmail = {};
+      for (var i = 0; i < ALL.length; i++) {
+        var r = ALL[i];
+        if (!r.email) continue;
+        if (!byEmail[r.email]) byEmail[r.email] = { name: r.name, email: r.email, paid: 0, totalPaid: 0 };
+        if (r.condition === 'Paid') { byEmail[r.email].paid++; byEmail[r.email].totalPaid += (r.total != null ? r.total : r.submitted); }
+      }
+      var byCountry = {};
+      for (var email in byEmail) {
+        var trader = byEmail[email];
+        if (trader.paid < 1) continue;
+        var csv = CUSTOMER_MAP[email];
+        if (!csv) continue;
+        var country = csv.country;
+        if (!byCountry[country]) {
+          var csvTotals = COUNTRY_CSV_MAP[country] || { totalSpent: 0, count: 0 };
+          byCountry[country] = { country: country, traders: [], totalSpent: csvTotals.totalSpent, totalCustomers: csvTotals.count, totalWithdrawn: 0 };
+        }
+        byCountry[country].traders.push({ name: trader.name, email: email, spent: csv.spent, withdrawn: trader.totalPaid });
+        byCountry[country].totalWithdrawn += trader.totalPaid;
+      }
+      COUNTRY_DATA = Object.values(byCountry);
+      expandedCountry = null;
+      renderCountryStats();
+      renderCountryCharts();
+      renderCountryTable();
+    }
+
+    function renderCountryStats() {
+      var totalTraders = COUNTRY_DATA.reduce(function (s, c) { return s + c.traders.length; }, 0);
+      var totalSpent = COUNTRY_DATA.reduce(function (s, c) { return s + c.totalSpent; }, 0);
+      var totalWithdrawn = COUNTRY_DATA.reduce(function (s, c) { return s + c.totalWithdrawn; }, 0);
+      var items = [
+        { cls: 'c-blue', ico: '🌍', ic: 'ic-blue', lbl: 'Países', val: fN(COUNTRY_DATA.length), sub: 'con traders activos' },
+        { cls: 'c-gold', ico: '👥', ic: 'ic-gold', lbl: 'Traders Asociados', val: fN(totalTraders), sub: 'con 1+ pagos' },
+        { cls: 'c-purple', ico: '🧾', ic: 'ic-purple', lbl: 'Facturado', val: fUSD(TOTAL_FACTURADO), sub: 'total col. R del CSV' },
+        { cls: 'c-blue', ico: '💳', ic: 'ic-blue', lbl: 'Gastado (retiraron)', val: fUSD(totalSpent), sub: 'clientes con retiros' },
+        { cls: 'c-green', ico: '💰', ic: 'ic-green', lbl: 'Total Retirado', val: fUSD(totalWithdrawn), sub: 'payouts pagados' },
+      ];
+      document.getElementById('country-stats').innerHTML = items.map(function (c) {
+        return '<div class="stat ' + c.cls + '"><div class="stat-ico ' + c.ic + '">' + c.ico + '</div><div class="stat-lbl">' + c.lbl + '</div><div class="stat-val">' + c.val + '</div><div class="stat-sub">' + c.sub + '</div></div>';
+      }).join('');
+    }
+
+    function renderCountryCharts() {
+      ['ch-ctraders', 'ch-cspent', 'ch-cwithdrawn'].forEach(function (id) { dChart(id); });
+      var boxStyle = 'background:var(--bgc);border:1px solid var(--b);border-radius:var(--rl);padding:18px';
+      document.getElementById('country-charts').innerHTML =
+        '<div style="' + boxStyle + '"><div class="chart-title">👥 Top Países · Traders</div><div style="position:relative;height:280px"><canvas id="ch-ctraders"></canvas></div></div>' +
+        '<div style="' + boxStyle + '"><div class="chart-title">💳 Top Países · Gastado</div><div style="position:relative;height:280px"><canvas id="ch-cspent"></canvas></div></div>' +
+        '<div style="' + boxStyle + '"><div class="chart-title">💰 Top Países · Retirado</div><div style="position:relative;height:280px"><canvas id="ch-cwithdrawn"></canvas></div></div>';
+
+      function trunc(s) { return s.length > 18 ? s.slice(0, 18) + '…' : s; }
+      function moneyFmt(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + v.toFixed(0); }
+      function barOpts(color, tickFmt) {
+        return { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#4a566a', font: { size: 10 }, callback: tickFmt }, grid: { color: 'rgba(255,255,255,.04)' } }, y: { ticks: { color: '#8b9ab5', font: { size: 10 } }, grid: { display: false } } } };
+      }
+
+      var top10t = COUNTRY_DATA.slice().sort(function (a, b) { return b.traders.length - a.traders.length; }).slice(0, 10);
+      var top10s = COUNTRY_DATA.slice().sort(function (a, b) { return b.totalSpent - a.totalSpent; }).slice(0, 10);
+      var top10w = COUNTRY_DATA.slice().sort(function (a, b) { return b.totalWithdrawn - a.totalWithdrawn; }).slice(0, 10);
+
+      CHARTS['ch-ctraders'] = new Chart(document.getElementById('ch-ctraders'), { type: 'bar', data: { labels: top10t.map(function (c) { return trunc(c.country); }), datasets: [{ data: top10t.map(function (c) { return c.traders.length; }), backgroundColor: '#f5c842', borderRadius: 4 }] }, options: barOpts('#f5c842', function (v) { return v; }) });
+      CHARTS['ch-cspent'] = new Chart(document.getElementById('ch-cspent'), { type: 'bar', data: { labels: top10s.map(function (c) { return trunc(c.country); }), datasets: [{ data: top10s.map(function (c) { return c.totalSpent; }), backgroundColor: '#4f8ef7', borderRadius: 4 }] }, options: barOpts('#4f8ef7', moneyFmt) });
+      CHARTS['ch-cwithdrawn'] = new Chart(document.getElementById('ch-cwithdrawn'), { type: 'bar', data: { labels: top10w.map(function (c) { return trunc(c.country); }), datasets: [{ data: top10w.map(function (c) { return c.totalWithdrawn; }), backgroundColor: '#2dd99e', borderRadius: 4 }] }, options: barOpts('#2dd99e', moneyFmt) });
+    }
+
+    var COUNTRY_SORT_COLS = ['country', 'totalCustomers', 'traders', 'spent', 'withdrawn', 'avgSpent', 'avgWithdrawn', 'pctTraders', 'pct'];
+
+    function getCountryVal(c, col) {
+      if (col === 'country') return c.country;
+      if (col === 'totalCustomers') return c.totalCustomers;
+      if (col === 'traders') return c.traders.length;
+      if (col === 'spent') return c.totalSpent;
+      if (col === 'withdrawn') return c.totalWithdrawn;
+      if (col === 'avgSpent') return c.totalCustomers > 0 ? c.totalSpent / c.totalCustomers : 0;
+      if (col === 'avgWithdrawn') return c.traders.length > 0 ? c.totalWithdrawn / c.traders.length : 0;
+      if (col === 'pctTraders') return c.totalCustomers > 0 ? c.traders.length / c.totalCustomers * 100 : 0;
+      if (col === 'pct') return c.totalSpent > 0 ? c.totalWithdrawn / c.totalSpent * 100 : 0;
+      return 0;
+    }
+
+    function getFilteredCountries() {
+      var search = document.getElementById('country-search').value.toLowerCase();
+      var data = COUNTRY_DATA.filter(function (c) { return !search || c.country.toLowerCase().includes(search); });
+      data.sort(function (a, b) {
+        var av = getCountryVal(a, countrySortCol), bv = getCountryVal(b, countrySortCol);
+        var cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+        return cmp * countrySortDir;
+      });
+      return data;
+    }
+
+    function updateCountryHeaders() {
+      COUNTRY_SORT_COLS.forEach(function (col) {
+        var el = document.getElementById('cth-' + col);
+        if (el) el.textContent = col === countrySortCol ? (countrySortDir === -1 ? ' ↓' : ' ↑') : '';
+      });
+    }
+
+    function sortCountryBy(col) {
+      if (countrySortCol === col) countrySortDir *= -1;
+      else { countrySortCol = col; countrySortDir = -1; }
+      updateCountryHeaders();
+      renderCountryTable();
+    }
+
+    function sortExpandedBy(col) {
+      if (expandedSortCol === col) expandedSortDir *= -1;
+      else { expandedSortCol = col; expandedSortDir = -1; }
+      renderCountryTable();
+    }
+
+    function getExpandedVal(t, col) {
+      if (col === 'name') return t.name;
+      if (col === 'email') return t.email;
+      if (col === 'spent') return t.spent;
+      if (col === 'withdrawn') return t.withdrawn;
+      return 0;
+    }
+
+    function renderCountryTable() {
+      var data = getFilteredCountries();
+      document.getElementById('country-count-badge').textContent = fN(data.length);
+      var arw = function (col, cur, dir) { return col === cur ? (dir === -1 ? ' ↓' : ' ↑') : ''; };
+      var html = '';
+      data.forEach(function (c, i) {
+        var exp = expandedCountry === c.country;
+        var safeCountry = c.country.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        html += '<tr style="cursor:pointer" onclick="toggleCountry(\'' + safeCountry + '\')">';
+        html += '<td style="color:var(--t3);font-weight:700">' + (i + 1) + '</td>';
+        html += '<td style="color:var(--t1);font-weight:700;font-size:13px">' + c.country + '</td>';
+        html += '<td><span style="background:rgba(79,142,247,.15);color:#4f8ef7;padding:2px 12px;border-radius:20px;font-weight:700;font-size:12px">' + c.totalCustomers + '</span></td>';
+        html += '<td><span style="background:rgba(245,200,66,.15);color:var(--gold);padding:2px 12px;border-radius:20px;font-weight:700;font-size:12px">' + c.traders.length + '</span></td>';
+        html += '<td style="color:#4f8ef7;font-weight:600">' + fUSD(c.totalSpent) + '</td>';
+        html += '<td style="color:var(--green);font-weight:600">' + fUSD(c.totalWithdrawn) + '</td>';
+        html += '<td style="color:var(--t2)">' + fUSD(c.totalCustomers > 0 ? c.totalSpent / c.totalCustomers : 0) + '</td>';
+        html += '<td style="color:var(--t2)">' + fUSD(c.traders.length > 0 ? c.totalWithdrawn / c.traders.length : 0) + '</td>';
+        var pctT = c.totalCustomers > 0 ? (c.traders.length / c.totalCustomers * 100) : 0;
+        var pctTColor = pctT >= 50 ? 'var(--green)' : pctT >= 20 ? 'var(--orange)' : 'var(--red)';
+        html += '<td style="color:' + pctTColor + ';font-weight:700">' + (c.totalCustomers > 0 ? pctT.toFixed(1) + '%' : '—') + '</td>';
+        var pct = c.totalSpent > 0 ? (c.totalWithdrawn / c.totalSpent * 100) : 0;
+        var pctColor = pct >= 100 ? 'var(--red)' : pct >= 50 ? 'var(--orange)' : 'var(--green)';
+        html += '<td style="color:' + pctColor + ';font-weight:700">' + (c.totalSpent > 0 ? pct.toFixed(1) + '%' : '—') + '</td>';
+        html += '<td style="text-align:center;color:var(--gold);font-weight:700">' + (exp ? '▲' : '▼') + '</td>';
+        html += '</tr>';
+        if (exp) {
+          var sorted = c.traders.slice().sort(function (a, b) {
+            var av = getExpandedVal(a, expandedSortCol), bv = getExpandedVal(b, expandedSortCol);
+            var cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+            return cmp * expandedSortDir;
+          });
+          html += '<tr><td colspan="11" style="padding:0;background:rgba(0,0,0,.25)">';
+          html += '<div style="border-left:3px solid var(--gold)">';
+          html += '<div style="padding:8px 16px 4px;font-size:11px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.08em">' + c.traders.length + ' traders en ' + c.country + '</div>';
+          html += '<table><thead><tr>';
+          html += '<th onclick="sortExpandedBy(\'name\')" style="cursor:pointer">Nombre' + arw('name', expandedSortCol, expandedSortDir) + '</th>';
+          html += '<th onclick="sortExpandedBy(\'email\')" style="cursor:pointer">Email' + arw('email', expandedSortCol, expandedSortDir) + '</th>';
+          html += '<th onclick="sortExpandedBy(\'spent\')" style="cursor:pointer">Gastado' + arw('spent', expandedSortCol, expandedSortDir) + '</th>';
+          html += '<th onclick="sortExpandedBy(\'withdrawn\')" style="cursor:pointer">Retirado' + arw('withdrawn', expandedSortCol, expandedSortDir) + '</th>';
+          html += '</tr></thead><tbody>';
+          sorted.forEach(function (t) {
+            html += '<tr><td style="color:var(--t1);font-weight:600">' + t.name + '</td><td style="color:var(--t3);font-size:11px">' + t.email + '</td><td style="color:#4f8ef7;font-weight:600">' + fUSD(t.spent) + '</td><td style="color:var(--green);font-weight:600">' + fUSD(t.withdrawn) + '</td></tr>';
+          });
+          html += '</tbody></table></div></td></tr>';
+        }
+      });
+      if (!html) html = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--t3)">🌍 Sin resultados</td></tr>';
+      document.getElementById('country-tbody').innerHTML = html;
+    }
+
+    function toggleCountry(country) {
+      if (expandedCountry !== country) { expandedSortCol = 'withdrawn'; expandedSortDir = -1; }
+      expandedCountry = expandedCountry === country ? null : country;
+      renderCountryTable();
+    }
+
+    document.getElementById('country-csv-input').addEventListener('change', function (e) {
+      if (e.target.files[0]) { loadCustomerCsv(e.target.files[0]); e.target.value = ''; }
+    });
 
     // ── EVENTS ──
     document.getElementById('drop-zone').addEventListener('click', function () { document.getElementById('file-input').click(); });
